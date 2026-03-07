@@ -701,15 +701,45 @@ app.post("/api/chat/image", upload.single("image"), async (req, res) => {
 // START SERVER
 // ═══════════════════════════════════════════════════════════════════
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log("Webhook endpoint ready at /webhook");
+// Initialize DB (early, so endpoints can use it right away)
+try {
+  db.initialize();
+  console.log("✅ Database initialized successfully");
+} catch (err) {
+  console.error("❌ Failed to initialize database:", err);
+}
 
-  try {
-    db.initialize();
-  } catch (err) {
-    console.error("❌ Failed to initialize database:", err);
-  }
+// Start server
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log("══════════════════════════════════════");
+  console.log("🌿 REE WhatsApp Shopping Companion");
+  console.log("🏪 GRIH SANSAR DEPARTMENTAL STORE");
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("🔗 Webhook endpoint ready at /webhook");
+  console.log("💡 Think Before You Blink.");
+  console.log("══════════════════════════════════════");
 });
 
+// Heartbeat log to keep Railway from idling the container
+const heartbeat = setInterval(() => {
+  console.log("💓 REE Bot heartbeat — server alive", new Date().toISOString());
+}, 30000);
+
+// Graceful shutdown handlers (Railway sends SIGTERM on deploy/stop)
+let shuttingDown = false;
+const shutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log(`🛑 ${signal} received. Shutting down server...`);
+  clearInterval(heartbeat);
+  server.close(() => {
+    console.log("✅ Server closed");
+  });
+};
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+// Export the app for testing or external use
 module.exports = app;
