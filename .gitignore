@@ -14,3 +14,6 @@ yarn-error.log*
 
 # Build outputs
 dist/
+
+# Database files (local/dev)
+database/*.db*

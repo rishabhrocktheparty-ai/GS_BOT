@@ -30,7 +30,28 @@ const whatsapp = require("./whatsapp/whatsapp-service");
 const gemini = require("./server/gemini-service");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
+const HOST = "0.0.0.0";
+
+// ─── Global error handling (prevents process exit on unhandled errors) ──
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled Rejection:", err);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+// ─── Sanity checks for required environment variables ───────────────
+function warnIfMissingEnv(name, value) {
+  if (!value || typeof value !== "string" || value.trim() === "" || value.startsWith("YOUR_")) {
+    console.warn(`⚠️ Missing or placeholder env var: ${name}. Set it in Railway environment settings.`);
+  }
+}
+
+warnIfMissingEnv("GROQ_API_KEY", config.GROQ_API_KEY);
+warnIfMissingEnv("WHATSAPP_ACCESS_TOKEN", config.WHATSAPP_ACCESS_TOKEN);
+warnIfMissingEnv("WHATSAPP_PHONE_NUMBER_ID", config.WHATSAPP_PHONE_NUMBER_ID);
+warnIfMissingEnv("WHATSAPP_VERIFY_TOKEN", config.WHATSAPP_VERIFY_TOKEN);
 
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(cors());
@@ -72,6 +93,11 @@ const upload = multer({
 // ═══════════════════════════════════════════════════════════════════
 // WHATSAPP WEBHOOK ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════
+
+// Health check
+app.get("/health", (req, res) => {
+  res.json({ status: "running" });
+});
 
 // Webhook Verification (GET) — Required by Meta
 app.get("/webhook", (req, res) => {
@@ -210,13 +236,17 @@ app.post("/webhook", async (req, res) => {
           if (context.type === "image_list" || context.type === "voice_order") {
             // Delay suggestion by 2 seconds
             setTimeout(async () => {
-              const suggestion = await gemini.generateSuggestion(
-                userText,
-                fullContext
-              );
-              if (suggestion) {
-                await whatsapp.sendTextMessage(phone, suggestion);
-                await db.saveConversation(phone, "ree", suggestion);
+              try {
+                const suggestion = await gemini.generateSuggestion(
+                  userText,
+                  fullContext
+                );
+                if (suggestion) {
+                  await whatsapp.sendTextMessage(phone, suggestion);
+                  await db.saveConversation(phone, "ree", suggestion);
+                }
+              } catch (err) {
+                console.error("❌ Suggestion error (async):", err);
               }
             }, 2000);
           }
@@ -671,21 +701,15 @@ app.post("/api/chat/image", upload.single("image"), async (req, res) => {
 // START SERVER
 // ═══════════════════════════════════════════════════════════════════
 
-app.listen(PORT, () => {
-  console.log(`
-╔═══════════════════════════════════════════════════════════╗
-║                                                           ║
-║   🌿 REE WhatsApp Shopping Companion                     ║
-║   GRIH SANSAR DEPARTMENTAL STORE                          ║
-║                                                           ║
-║   Server running on port ${PORT}                            ║
-║   Webhook URL: https://yourdomain.com/webhook             ║
-║                                                           ║
-║   "Think Before You Blink."                               ║
-║                                                           ║
-╚═══════════════════════════════════════════════════════════╝
-  `);
-  db.initialize();
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log("Webhook endpoint ready at /webhook");
+
+  try {
+    db.initialize();
+  } catch (err) {
+    console.error("❌ Failed to initialize database:", err);
+  }
 });
 
 module.exports = app;

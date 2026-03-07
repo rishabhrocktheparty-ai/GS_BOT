@@ -8,6 +8,15 @@ const config = require("../config/config");
 
 const GROQ_URL = `https://api.groq.com/v1/models/${config.GROQ_MODEL}/generate`;
 
+function isGroqConfigured() {
+  const key = config.GROQ_API_KEY;
+  return Boolean(key && typeof key === "string" && key.trim() && !key.includes("YOUR_"));
+}
+
+function getMissingGroqKeyMessage() {
+  return "AI service is not configured. Please set GROQ_API_KEY in your environment variables.";
+}
+
 function extractTextFromGroqResponse(data) {
   // Groq responses vary by API version; try common fields
   return (
@@ -20,6 +29,11 @@ function extractTextFromGroqResponse(data) {
 }
 
 async function callGroq(prompt, generationConfig = {}) {
+  if (!isGroqConfigured()) {
+    console.warn("⚠️ GROQ API key is missing. Skipping AI call.");
+    return getMissingGroqKeyMessage();
+  }
+
   const payload = {
     input: prompt,
     temperature: generationConfig.temperature ?? 0.8,
@@ -29,18 +43,23 @@ async function callGroq(prompt, generationConfig = {}) {
     ...generationConfig,
   };
 
-  const response = await axios.post(
-    GROQ_URL,
-    payload,
-    {
-      headers: {
-        Authorization: `Bearer ${config.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
+  try {
+    const response = await axios.post(
+      GROQ_URL,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${config.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-  return extractTextFromGroqResponse(response.data);
+    return extractTextFromGroqResponse(response.data);
+  } catch (err) {
+    console.error("❌ Groq API request failed:", err.response?.data || err.message);
+    return null;
+  }
 }
 
 // ─── System Prompt for REE ───────────────────────────────────────
