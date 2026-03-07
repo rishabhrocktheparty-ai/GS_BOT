@@ -31,7 +31,7 @@
 │         │                  │                      │               │
 │         ▼                  ▼                      ▼               │
 │  ┌──────────────────────────────────────────────────────────┐    │
-│  │              GEMINI AI ENGINE                             │    │
+│  │              GROQ AI ENGINE                               │    │
 │  │  • Text NLP (grocery list parsing)                        │    │
 │  │  • Image OCR (handwritten list recognition)               │    │
 │  │  • Audio STT (voice message transcription)                │    │
@@ -74,7 +74,7 @@ ree-bot/
 │   └── db.js                       # SQLite schema + all queries
 │
 ├── server/
-│   ├── gemini-service.js           # Gemini AI (NLP, Vision, Audio, Recipes)
+│   ├── gemini-service.js           # Groq AI (NLP, Recipes, Suggestions)
 │   └── scheduler.js                # Cron jobs (reminders, alerts)
 │
 ├── whatsapp/
@@ -121,13 +121,17 @@ WHATSAPP_ACCESS_TOKEN=your_token
 WHATSAPP_VERIFY_TOKEN=ree_grihsansar_2026
 ```
 
-### 4. Gemini API Setup
+### 4. Groq API Setup
 
-1. Go to [Google AI Studio](https://aistudio.google.com)
+1. Go to [Groq Docs](https://docs.groq.com) or your Groq dashboard
 2. Create an API key
 3. Add to `.env`:
 ```
-GEMINI_API_KEY=your_key
+GROQ_API_KEY=your_key
+```
+(Optional) Change model:
+```
+GROQ_MODEL=groq-alpha-1
 ```
 
 ### 5. Start Server
@@ -279,7 +283,7 @@ WhatsApp Business API → POST /webhook
 Intent Detection: ORDER
         │
         ▼
-Gemini AI parses list → matches inventory
+Groq AI parses list → matches inventory
         │
         ▼
 REE responds with priced basket:

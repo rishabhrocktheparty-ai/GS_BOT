@@ -26,7 +26,7 @@ const config = require("./config/config");
 // ─── WhatsApp Service ────────────────────────────────────────────
 const whatsapp = require("./whatsapp/whatsapp-service");
 
-// ─── Gemini AI Service ───────────────────────────────────────────
+// ─── Groq AI Service ───────────────────────────────────────────
 const gemini = require("./server/gemini-service");
 
 const app = express();
@@ -131,7 +131,7 @@ app.post("/webhook", async (req, res) => {
               break;
 
             case "image":
-              // Download image and process with Gemini Vision
+              // Download image and attempt to process (Groq does not support multimodal inputs)
               const imageUrl = await whatsapp.getMediaUrl(message.image.id);
               const imageBuffer = await whatsapp.downloadMedia(imageUrl);
               const imageBase64 = imageBuffer.toString("base64");
@@ -143,7 +143,7 @@ app.post("/webhook", async (req, res) => {
               break;
 
             case "audio":
-              // Download audio and transcribe with Gemini
+              // Download audio (transcription not supported with Groq)
               const audioUrl = await whatsapp.getMediaUrl(message.audio.id);
               const audioBuffer = await whatsapp.downloadMedia(audioUrl);
               const audioBase64 = audioBuffer.toString("base64");
@@ -177,7 +177,7 @@ app.post("/webhook", async (req, res) => {
           const conversationHistory = await db.getConversationHistory(phone, 10);
           const inventory = await db.getInventory();
 
-          // Build context for Gemini
+          // Build context for Groq
           const fullContext = {
             customerName: customer?.name || name,
             phone,

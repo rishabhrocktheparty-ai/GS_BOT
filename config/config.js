@@ -11,11 +11,12 @@ module.exports = {
   WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || "ree_grihsansar_2026",
   WHATSAPP_BUSINESS_ID: process.env.WHATSAPP_BUSINESS_ID || "YOUR_BUSINESS_ID",
 
-  // ─── Gemini API ────────────────────────────────────────────────
+  // ─── Groq API (replaces Gemini) ───────────────────────────────────────
   // NOTE: Store your API key in a local `.env` file (or your hosting platform's secret store).
   // Never commit real API keys to version control.
-  GEMINI_API_KEY: process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY",
-  GEMINI_MODEL: "gemini-2.0-flash",
+  // If you're migrating from Gemini, you can still keep the old GEMINI_API_KEY env var.
+  GROQ_API_KEY: process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || "YOUR_GROQ_API_KEY",
+  GROQ_MODEL: process.env.GROQ_MODEL || "groq-alpha-1",
 
   // ─── Database ──────────────────────────────────────────────────
   DB_PATH: process.env.DB_PATH || "./database/ree_store.db",

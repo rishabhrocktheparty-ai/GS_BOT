@@ -1,12 +1,47 @@
 // ═══════════════════════════════════════════════════════════════════
-// REE Bot — Gemini AI Service
-// Handles: NLP, Image OCR, Audio Transcription, Recipes, Suggestions
+// REE Bot — Groq AI Service
+// Handles: NLP, Recipes, Suggestions (text generation)
 // ═══════════════════════════════════════════════════════════════════
 
 const axios = require("axios");
 const config = require("../config/config");
 
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${config.GEMINI_MODEL}:generateContent?key=${config.GEMINI_API_KEY}`;
+const GROQ_URL = `https://api.groq.com/v1/models/${config.GROQ_MODEL}/generate`;
+
+function extractTextFromGroqResponse(data) {
+  // Groq responses vary by API version; try common fields
+  return (
+    data?.output?.[0]?.content?.[0]?.text ||
+    data?.output?.[0]?.text ||
+    data?.choices?.[0]?.text ||
+    data?.text ||
+    null
+  );
+}
+
+async function callGroq(prompt, generationConfig = {}) {
+  const payload = {
+    input: prompt,
+    temperature: generationConfig.temperature ?? 0.8,
+    top_p: generationConfig.topP ?? 0.95,
+    top_k: generationConfig.topK ?? 40,
+    max_output_tokens: generationConfig.maxOutputTokens ?? 1024,
+    ...generationConfig,
+  };
+
+  const response = await axios.post(
+    GROQ_URL,
+    payload,
+    {
+      headers: {
+        Authorization: `Bearer ${config.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  return extractTextFromGroqResponse(response.data);
+}
 
 // ─── System Prompt for REE ───────────────────────────────────────
 const SYSTEM_PROMPT = `You are REE — the friendly, warm, and intelligent shopping companion at GRIH SANSAR DEPARTMENTAL STORE. You are NOT an AI, chatbot, or automated system. You are a helpful person from the store who assists customers via WhatsApp.
@@ -109,26 +144,20 @@ async function generateResponse(userMessage, context) {
   messages.push({ role: "user", parts: [{ text: userMessage }] });
 
   try {
-    const response = await axios.post(GEMINI_URL, {
-      contents: messages,
-      generationConfig: {
-        temperature: 0.8,
-        topP: 0.95,
-        topK: 40,
-        maxOutputTokens: 1024,
-      },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-      ],
+    const prompt = messages
+      .map(m => `${m.role.toUpperCase()}:\n${m.parts.map(p => p.text).join("")}`)
+      .join("\n\n");
+
+    const reply = await callGroq(prompt, {
+      temperature: 0.8,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 1024,
     });
 
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text
-      || "I'm having a small hiccup — could you try that again? 😊";
+    return reply || "I'm having a small hiccup — could you try that again? 😊";
   } catch (error) {
-    console.error("❌ Gemini API error:", error.response?.data || error.message);
+    console.error("❌ Groq API error:", error.response?.data || error.message);
     return "Oops, a small connection issue on my end. Could you try again? I'm right here! 😊";
   }
 }
@@ -139,34 +168,9 @@ async function generateResponse(userMessage, context) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function processImage(base64Data, mimeType) {
-  try {
-    const response = await axios.post(GEMINI_URL, {
-      contents: [{
-        role: "user",
-        parts: [
-          { inlineData: { mimeType, data: base64Data } },
-          {
-            text: `You are REE from GRIH SANSAR store. A customer sent a photo of their grocery list.
-
-Please:
-1. Read ALL items from the image (handwritten or printed)
-2. For each item, identify: item name, quantity if mentioned, any brand preference
-3. Return a structured list
-
-If any item is unclear or partially readable, mention it.
-Format: Return ONLY the extracted items as a simple comma-separated list.
-Example: "2 kg atta, 1 L milk, 500g paneer, eggs 12, tomatoes 1 kg"`,
-          },
-        ],
-      }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 512 },
-    });
-
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Could not read the image clearly";
-  } catch (error) {
-    console.error("❌ Image processing error:", error.message);
-    return "Could not process the image";
-  }
+  // Groq currently does not support multimodal image inputs.
+  // You can replace this with a dedicated OCR service (e.g., Google Vision, Tesseract).
+  return "Image processing is not supported with the current Groq integration.";
 }
 
 
@@ -175,30 +179,9 @@ Example: "2 kg atta, 1 L milk, 500g paneer, eggs 12, tomatoes 1 kg"`,
 // ═══════════════════════════════════════════════════════════════════
 
 async function processAudio(base64Data, mimeType) {
-  try {
-    // Use Gemini's multimodal capabilities for audio
-    const response = await axios.post(GEMINI_URL, {
-      contents: [{
-        role: "user",
-        parts: [
-          { inlineData: { mimeType, data: base64Data } },
-          {
-            text: `Transcribe this voice message from a grocery store customer. 
-They are likely ordering groceries or asking about products.
-Return ONLY the transcribed text, nothing else.
-If the audio mentions grocery items, quantities, or brands, transcribe them accurately.
-Handle Hindi/English mix (Hinglish) naturally.`,
-          },
-        ],
-      }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
-    });
-
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "Could not understand the voice message";
-  } catch (error) {
-    console.error("❌ Audio processing error:", error.message);
-    return "Could not process the voice message";
-  }
+  // Groq currently does not support audio transcription.
+  // For voice messages, consider using a dedicated speech-to-text service (e.g., Whisper, Google Speech-to-Text).
+  return "Voice message transcription is not supported with the current Groq integration.";
 }
 
 
@@ -208,16 +191,7 @@ Handle Hindi/English mix (Hinglish) naturally.`,
 
 async function generateSuggestion(orderItems, context) {
   try {
-    const response = await axios.post(GEMINI_URL, {
-      contents: [
-        { role: "user", parts: [{ text: SYSTEM_PROMPT }] },
-        { role: "model", parts: [{ text: "Ready!" }] },
-        {
-          role: "user",
-          parts: [{
-            text: `The customer just ordered: ${orderItems}
-
-Based on retail product affinity (complementary items), suggest 1-2 additional items they might need.
+    const prompt = `${SYSTEM_PROMPT}\n\nThe customer just ordered: ${orderItems}\n\nBased on retail product affinity (complementary items), suggest 1-2 additional items they might need.
 Rules:
 - Maximum 2 suggestions
 - Must be relevant to what they ordered
@@ -227,17 +201,12 @@ Rules:
 - Keep it under 60 words
 
 ${context.customerName ? `Customer name: ${context.customerName}` : ""}
-${context.orderHistory?.length ? `They have ordered ${context.orderHistory.length} times before.` : "First-time customer."}`,
-          }],
-        },
-      ],
-      generationConfig: { temperature: 0.8, maxOutputTokens: 200 },
-    });
+${context.orderHistory?.length ? `They have ordered ${context.orderHistory.length} times before.` : "First-time customer."}`;
 
-    const suggestion = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const suggestion = await callGroq(prompt, { temperature: 0.8, maxOutputTokens: 200 });
     return suggestion || null;
   } catch (error) {
-    console.error("❌ Suggestion error:", error.message);
+    console.error("❌ Suggestion error:", error.response?.data || error.message);
     return null;
   }
 }
@@ -249,11 +218,7 @@ ${context.orderHistory?.length ? `They have ordered ${context.orderHistory.lengt
 
 async function generateRecipe(preferences, availableIngredients) {
   try {
-    const response = await axios.post(GEMINI_URL, {
-      contents: [{
-        role: "user",
-        parts: [{
-          text: `You are REE from GRIH SANSAR store. A customer wants a quick recipe idea.
+    const prompt = `You are REE from GRIH SANSAR store. A customer wants a quick recipe idea.
 ${preferences ? `Their preference: ${preferences}` : "Suggest a quick Indian snack."}
 ${availableIngredients ? `Available ingredients: ${availableIngredients}` : ""}
 
@@ -270,15 +235,12 @@ Format:
 
 Then offer: "Want me to add the ingredients to your basket?"
 Keep it under 120 words.
-Start with: "Feeling hungry? Instead of ordering outside, try this!"`,
-        }],
-      }],
-      generationConfig: { temperature: 0.9, maxOutputTokens: 400 },
-    });
+Start with: "Feeling hungry? Instead of ordering outside, try this!"`;
 
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    const recipe = await callGroq(prompt, { temperature: 0.9, maxOutputTokens: 400 });
+    return recipe || null;
   } catch (error) {
-    console.error("❌ Recipe error:", error.message);
+    console.error("❌ Recipe error:", error.response?.data || error.message);
     return null;
   }
 }
@@ -297,11 +259,7 @@ async function generateReminder(customer, lastOrder) {
       orderItems = items.map(i => `${i.name} ${i.variant || ""}`).join(", ");
     } catch (e) {}
 
-    const response = await axios.post(GEMINI_URL, {
-      contents: [{
-        role: "user",
-        parts: [{
-          text: `You are REE from GRIH SANSAR. Generate a warm, natural pantry reminder.
+    const prompt = `You are REE from GRIH SANSAR. Generate a warm, natural pantry reminder.
 
 Customer: ${customer.name}
 Days since last order: ${daysSince}
@@ -316,16 +274,13 @@ Generate a friendly reminder (under 100 words) that:
 - Lists their usual items
 - Shows estimated total
 - Makes it easy to reorder (just say "Yes")
-- Never sounds pushy or automated`,
-        }],
-      }],
-      generationConfig: { temperature: 0.8, maxOutputTokens: 300 },
-    });
+- Never sounds pushy or automated`;
 
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text
-      || `Hi ${customer.name}! 😊 It's been about ${daysSince} days since your last order. Shall I set up your usual basket?`;
+    const reminderText = await callGroq(prompt, { temperature: 0.8, maxOutputTokens: 300 });
+
+    return reminderText || `Hi ${customer.name}! 😊 It's been about ${daysSince} days since your last order. Shall I set up your usual basket?`;
   } catch (error) {
-    console.error("❌ Reminder error:", error.message);
+    console.error("❌ Reminder error:", error.response?.data || error.message);
     return `Hi ${customer.name}! 😊 It's been a while since your last order. Shall I set up your usual basket? Just say "Yes"!`;
   }
 }
