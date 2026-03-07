@@ -11,21 +11,28 @@
     "seed:inventory": "node scripts/seed-inventory.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "multer": "^1.4.5-lts.1",
     "axios": "^1.6.7",
-    "better-sqlite3": "^9.4.3",
-    "xlsx": "^0.18.5",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.1",
-    "helmet": "^7.1.0",
+    "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
-    "node-cron": "^3.0.3"
+    "helmet": "^7.1.0",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
   },
-  "keywords": ["whatsapp", "chatbot", "grocery", "shopping", "gemini", "ai"],
+  "keywords": [
+    "whatsapp",
+    "chatbot",
+    "grocery",
+    "shopping",
+    "gemini",
+    "ai"
+  ],
   "author": "GRIH SANSAR",
   "license": "PROPRIETARY"
 }

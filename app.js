@@ -4,6 +4,10 @@
 // "Think Before You Blink"
 // ═══════════════════════════════════════════════════════════════════
 
+// Load environment variables from .env (local development only).
+// This lets you keep secrets like API keys out of source control.
+require("dotenv").config();
+
 const express = require("express");
 const multer = require("multer");
 const cors = require("cors");
