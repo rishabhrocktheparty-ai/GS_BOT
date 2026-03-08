@@ -11,16 +11,10 @@ module.exports = {
   WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN || "ree_grihsansar_2026",
   WHATSAPP_BUSINESS_ID: process.env.WHATSAPP_BUSINESS_ID || "YOUR_BUSINESS_ID",
 
-  // ─── Cloudflare Workers AI (replaces Gemini / Grok) ────────────────────────
-  // NOTE: Store your API token in a local `.env` file (or your hosting platform's secret store).
+  // ─── Groq AI (OpenAI-compatible) ────────────────────────────────────────
+  // NOTE: Store your API key in a local `.env` file (or your hosting platform's secret store).
   // Never commit real API keys to version control.
-  // If you're migrating from an older setup, you can still keep the old GEMINI_API_KEY / GROQ_API_KEY env vars.
-  GROK_API_KEY: process.env.GROK_API_KEY || process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || "YOUR_GROK_API_KEY",
-  GROK_MODEL: process.env.GROK_MODEL || "grok-1.0",
-
-  // ─── Cloudflare Workers AI (new default) ─────────────────────────
-  CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || "YOUR_CLOUDFLARE_ACCOUNT_ID",
-  CLOUDFLARE_AI_TOKEN: process.env.CLOUDFLARE_AI_TOKEN || "YOUR_CLOUDFLARE_AI_API_TOKEN",
+  GROQ_API_KEY: process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY",
 
   // ─── Database ──────────────────────────────────────────────────
   DB_PATH: process.env.DB_PATH || "./database/ree_store.db",

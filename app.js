@@ -26,8 +26,8 @@ const config = require("./config/config");
 // ─── WhatsApp Service ────────────────────────────────────────────
 const whatsapp = require("./whatsapp/whatsapp-service");
 
-// ─── Cloudflare Workers AI Service ────────────────────────────
-const cloudflareAI = require("./services/cloudflareAI");
+// ─── Groq AI Service ────────────────────────────────────────────
+const groqAI = require("./services/groqAI");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -48,8 +48,7 @@ function warnIfMissingEnv(name, value) {
   }
 }
 
-warnIfMissingEnv("CLOUDFLARE_ACCOUNT_ID", config.CLOUDFLARE_ACCOUNT_ID);
-warnIfMissingEnv("CLOUDFLARE_AI_TOKEN", config.CLOUDFLARE_AI_TOKEN);
+warnIfMissingEnv("GROQ_API_KEY", config.GROQ_API_KEY);
 warnIfMissingEnv("WHATSAPP_ACCESS_TOKEN", config.WHATSAPP_ACCESS_TOKEN);
 warnIfMissingEnv("WHATSAPP_PHONE_NUMBER_ID", config.WHATSAPP_PHONE_NUMBER_ID);
 warnIfMissingEnv("WHATSAPP_VERIFY_TOKEN", config.WHATSAPP_VERIFY_TOKEN);
@@ -221,18 +220,17 @@ app.post("/webhook", async (req, res) => {
 
           if (message.type === "text") {
             userText = message.text.body;
-            parsedOrder = await cloudflareAI.parseGroceryOrder(userText);
+            parsedOrder = await groqAI.parseGroceryOrder(userText);
           } else if (message.type === "image") {
-            const imageUrl = await whatsapp.getMediaUrl(message.image.id);
-            const imageBuffer = await whatsapp.downloadMedia(imageUrl);
-            const mimeType = message.image.mime_type || "image/jpeg";
-            parsedOrder = await cloudflareAI.processGroceryImage(imageBuffer, mimeType);
-            userText = "[Customer sent an image of a grocery list]";
-            orderContextType = "image_list";
+            const imageResult = await groqAI.processGroceryImage();
+            const replyText = imageResult?.message || "I can see you sent a photo! Please type out your grocery list or send a quick voice note so I can help you faster.";
+            await whatsapp.sendTextMessage(phone, replyText);
+            await db.saveConversation(phone, "ree", replyText);
+            continue;
           } else if (message.type === "audio") {
             const audioUrl = await whatsapp.getMediaUrl(message.audio.id);
             const audioBuffer = await whatsapp.downloadMedia(audioUrl);
-            parsedOrder = await cloudflareAI.processVoiceOrder(audioBuffer);
+            parsedOrder = await groqAI.processVoiceOrder(audioBuffer);
             userText = "[Customer sent a voice message]";
             orderContextType = "voice_order";
           } else if (message.type === "interactive") {
@@ -263,7 +261,7 @@ app.post("/webhook", async (req, res) => {
             if (orderContextType) {
               setTimeout(async () => {
                 try {
-                  const suggestion = await cloudflareAI.getSmartSuggestions(parsedOrder.items);
+                  const suggestion = await groqAI.getSmartSuggestions(parsedOrder.items);
                   if (suggestion && suggestion.suggestions && suggestion.suggestions.length) {
                     const suggestionText = suggestion.suggestions
                       .map((s) => `• ${s.item} — ${s.reason} (${s.estimated_price})`)
@@ -282,7 +280,7 @@ ${suggestionText}`);
           }
 
           // Not an order / could not parse — fallback to general chat
-          const reply = await cloudflareAI.handleGeneralChat(userText, name);
+          const reply = await groqAI.handleGeneralChat(userText, name);
           const finalReply = reply || "I'm here to help! You can send me your grocery list anytime. 😊";
           await whatsapp.sendTextMessage(phone, finalReply);
           await db.saveConversation(phone, "ree", finalReply);
@@ -613,7 +611,7 @@ app.post("/api/reminders/check", async (req, res) => {
       const daysSince = Math.floor((Date.now() - new Date(lastOrder.created_at).getTime()) / 86400000);
 
       if (daysSince >= customer.avg_order_cycle * 0.9) {
-        const analysis = await cloudflareAI.analyseReorderTiming({
+        const analysis = await groqAI.analyseReorderTiming({
           ...customer,
           orderHistory: await db.getOrderHistory(customer.phone, 10),
           lastOrderDate: lastOrder.created_at,
@@ -708,7 +706,7 @@ app.post("/api/chat", async (req, res) => {
       inventory,
     };
 
-    const response = await cloudflareAI.handleGeneralChat(message, demoName);
+    const response = await groqAI.handleGeneralChat(message, demoName);
 
     await db.saveConversation(demoPhone, "user", message);
     await db.saveConversation(demoPhone, "ree", response);
@@ -729,11 +727,11 @@ app.post("/api/chat/image", upload.single("image"), async (req, res) => {
     const imageBuffer = fs.readFileSync(req.file.path);
     const mimeType = req.file.mimetype;
 
-    const analysis = await cloudflareAI.processGroceryImage(imageBuffer, mimeType);
+    const analysis = await groqAI.processGroceryImage();
 
     fs.unlinkSync(req.file.path);
 
-    res.json({ success: true, data: { extractedItems: analysis } });
+    res.json({ success: true, data: { message: analysis?.message || "" } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -762,7 +760,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log("💡 Think Before You Blink.");
   console.log("══════════════════════════════════════");
 
-  cloudflareAI.verifyConnection().then((ok) => {
+  groqAI.verifyConnection().then((ok) => {
     if (ok) {
       console.log("🧠 AI engine ready");
     } else {

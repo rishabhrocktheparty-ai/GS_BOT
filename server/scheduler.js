@@ -6,7 +6,7 @@
 const cron = require("node-cron");
 const db = require("../database/db");
 const whatsapp = require("../whatsapp/whatsapp-service");
-const cloudflareAI = require("../services/cloudflareAI");
+const groqAI = require("../services/groqAI");
 
 function initScheduler() {
   console.log("⏰ Scheduler initialized");
@@ -28,7 +28,7 @@ function initScheduler() {
 
         // Trigger if within 90% of their average cycle
         if (daysSince >= customer.avg_order_cycle * 0.9) {
-          const analysis = await cloudflareAI.analyseReorderTiming({
+          const analysis = await groqAI.analyseReorderTiming({
             ...customer,
             orderHistory: await db.getOrderHistory(customer.phone, 10),
             lastOrderDate: lastOrder.created_at,

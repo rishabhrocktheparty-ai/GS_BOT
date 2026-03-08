@@ -74,7 +74,7 @@ ree-bot/
 │   └── db.js                       # SQLite schema + all queries
 │
 ├── services/
-│   └── cloudflareAI.js            # Cloudflare Workers AI integration
+│   └── groqAI.js                  # Groq AI integration (OpenAI-compatible)
 ├── server/
 │   └── scheduler.js               # Cron jobs (reminders, alerts)
 │
@@ -122,14 +122,13 @@ WHATSAPP_ACCESS_TOKEN=your_token
 WHATSAPP_VERIFY_TOKEN=ree_grihsansar_2026
 ```
 
-### 4. Cloudflare Workers AI Setup
+### 4. Groq AI Setup
 
-1. Go to the [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Workers AI**
-2. Create a **Workers AI API Token** with **Workers AI: Read** and **Workers AI: Edit** permissions
+1. Go to https://api.groq.com and create an account.
+2. Generate an API key (starts with `gsk_...`).
 3. Add to `.env`:
 ```
-CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
-CLOUDFLARE_AI_TOKEN=your_cloudflare_ai_api_token
+GROQ_API_KEY=your_groq_api_key
 ```
 
 ### 5. Start Server
