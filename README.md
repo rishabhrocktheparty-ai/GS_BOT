@@ -31,7 +31,7 @@
 │         │                  │                      │               │
 │         ▼                  ▼                      ▼               │
 │  ┌──────────────────────────────────────────────────────────┐    │
-│  │              GROQ AI ENGINE                               │    │
+│  │              Grok AI ENGINE                               │    │
 │  │  • Text NLP (grocery list parsing)                        │    │
 │  │  • Image OCR (handwritten list recognition)               │    │
 │  │  • Audio STT (voice message transcription)                │    │
@@ -73,9 +73,10 @@ ree-bot/
 ├── database/
 │   └── db.js                       # SQLite schema + all queries
 │
+├── services/
+│   └── cloudflareAI.js            # Cloudflare Workers AI integration
 ├── server/
-│   ├── gemini-service.js           # Groq AI (NLP, Recipes, Suggestions)
-│   └── scheduler.js                # Cron jobs (reminders, alerts)
+│   └── scheduler.js               # Cron jobs (reminders, alerts)
 │
 ├── whatsapp/
 │   └── whatsapp-service.js         # WhatsApp Business API integration
@@ -121,17 +122,14 @@ WHATSAPP_ACCESS_TOKEN=your_token
 WHATSAPP_VERIFY_TOKEN=ree_grihsansar_2026
 ```
 
-### 4. Groq API Setup
+### 4. Cloudflare Workers AI Setup
 
-1. Go to [Groq Docs](https://docs.groq.com) or your Groq dashboard
-2. Create an API key
+1. Go to the [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Workers AI**
+2. Create a **Workers AI API Token** with **Workers AI: Read** and **Workers AI: Edit** permissions
 3. Add to `.env`:
 ```
-GROQ_API_KEY=your_key
-```
-(Optional) Change model:
-```
-GROQ_MODEL=groq-alpha-1
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
+CLOUDFLARE_AI_TOKEN=your_cloudflare_ai_api_token
 ```
 
 ### 5. Start Server
@@ -283,7 +281,7 @@ WhatsApp Business API → POST /webhook
 Intent Detection: ORDER
         │
         ▼
-Groq AI parses list → matches inventory
+Grok AI parses list → matches inventory
         │
         ▼
 REE responds with priced basket:

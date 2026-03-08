@@ -6,7 +6,7 @@
 const cron = require("node-cron");
 const db = require("../database/db");
 const whatsapp = require("../whatsapp/whatsapp-service");
-const gemini = require("./gemini-service");
+const cloudflareAI = require("../services/cloudflareAI");
 
 function initScheduler() {
   console.log("⏰ Scheduler initialized");
@@ -28,14 +28,22 @@ function initScheduler() {
 
         // Trigger if within 90% of their average cycle
         if (daysSince >= customer.avg_order_cycle * 0.9) {
-          const reminder = await gemini.generateReminder(customer, lastOrder);
-          await whatsapp.sendTextMessage(customer.phone, reminder);
-          await db.saveConversation(customer.phone, "ree", reminder);
-          await db.updateLastReminder(customer.phone);
-          sent++;
+          const analysis = await cloudflareAI.analyseReorderTiming({
+            ...customer,
+            orderHistory: await db.getOrderHistory(customer.phone, 10),
+            lastOrderDate: lastOrder.created_at,
+          });
 
-          // Rate limiting: 1 per second
-          await new Promise((r) => setTimeout(r, 1000));
+          if (analysis && analysis.should_remind) {
+            const reminder = analysis.suggested_message || `Hi ${customer.name}! 😊 It's been a while since your last order. Shall I set up your usual basket? Just say "Yes"!`;
+            await whatsapp.sendTextMessage(customer.phone, reminder);
+            await db.saveConversation(customer.phone, "ree", reminder);
+            await db.updateLastReminder(customer.phone);
+            sent++;
+
+            // Rate limiting: 1 per second
+            await new Promise((r) => setTimeout(r, 1000));
+          }
         }
       }
 

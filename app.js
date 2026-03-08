@@ -26,8 +26,8 @@ const config = require("./config/config");
 // ─── WhatsApp Service ────────────────────────────────────────────
 const whatsapp = require("./whatsapp/whatsapp-service");
 
-// ─── Groq AI Service ───────────────────────────────────────────
-const gemini = require("./server/gemini-service");
+// ─── Cloudflare Workers AI Service ────────────────────────────
+const cloudflareAI = require("./services/cloudflareAI");
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -48,7 +48,8 @@ function warnIfMissingEnv(name, value) {
   }
 }
 
-warnIfMissingEnv("GROQ_API_KEY", config.GROQ_API_KEY);
+warnIfMissingEnv("CLOUDFLARE_ACCOUNT_ID", config.CLOUDFLARE_ACCOUNT_ID);
+warnIfMissingEnv("CLOUDFLARE_AI_TOKEN", config.CLOUDFLARE_AI_TOKEN);
 warnIfMissingEnv("WHATSAPP_ACCESS_TOKEN", config.WHATSAPP_ACCESS_TOKEN);
 warnIfMissingEnv("WHATSAPP_PHONE_NUMBER_ID", config.WHATSAPP_PHONE_NUMBER_ID);
 warnIfMissingEnv("WHATSAPP_VERIFY_TOKEN", config.WHATSAPP_VERIFY_TOKEN);
@@ -90,13 +91,81 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
+// ─── Helpers — Build order data + basket summaries ───────────────────
+
+function parseQuantity(quantity) {
+  if (!quantity) return 1;
+  const match = String(quantity).match(/([0-9]*\.?[0-9]+)/);
+  if (!match) return 1;
+  const value = parseFloat(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function buildOrderData(parsedItems) {
+  const items = [];
+  let subtotal = 0;
+
+  for (const rawItem of parsedItems) {
+    const qty = parseQuantity(rawItem.quantity);
+    const inventoryItem = db.findInventoryByName(rawItem.name);
+    const name = inventoryItem?.name || rawItem.name;
+    const variant = inventoryItem?.variant || "";
+    const price = inventoryItem?.price || 0;
+    const lineTotal = Math.round(price * qty);
+
+    items.push({
+      name,
+      variant,
+      quantity: qty,
+      price,
+      lineTotal,
+    });
+
+    subtotal += lineTotal;
+  }
+
+  const deliveryCharge = subtotal >= config.FREE_DELIVERY_THRESHOLD ? 0 : config.DELIVERY_CHARGE;
+  const total = Math.round(subtotal + deliveryCharge);
+  const savingsVsQC = Math.round(total * config.SAVINGS_MARKUP_PERCENTAGE / 100);
+
+  return {
+    items,
+    subtotal,
+    deliveryCharge,
+    discount: 0,
+    total,
+    savingsVsQC,
+  };
+}
+
+function formatBasketSummary(orderData) {
+  const lines = orderData.items.map((item) => {
+    return `• ${item.name} — ${item.quantity}${item.variant ? ` ${item.variant}` : ""} — ₹${item.lineTotal}`;
+  });
+
+  const deliveryLine = orderData.deliveryCharge === 0
+    ? "🚚 Free delivery!"
+    : `🚚 Delivery: ₹${orderData.deliveryCharge}`;
+
+  return `🛒 Your Basket:\n${lines.join("\n")}\n\n💰 Subtotal: ₹${orderData.subtotal}\n${deliveryLine}\n\n💳 Total: ₹${orderData.total}`;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // WHATSAPP WEBHOOK ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════
 
-// Health check
+// Root / health check (Railway expects a 200 response on / by default)
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "alive",
+    service: "REE WhatsApp Bot",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Health check endpoint (explicit)
 app.get("/health", (req, res) => {
-  res.json({ status: "running" });
+  res.status(200).send("OK");
 });
 
 // Webhook Verification (GET) — Required by Meta
@@ -141,115 +210,82 @@ app.post("/webhook", async (req, res) => {
           // Ensure customer exists in DB
           await db.upsertCustomer(phone, name);
 
-          // Mark as read
+          // Mark as read & show typing
           await whatsapp.markAsRead(message.id);
-
-          // Send typing indicator
           await whatsapp.sendTypingIndicator(phone);
 
-          // Process based on message type
+          // Determine message payload
           let userText = "";
-          let context = {};
+          let parsedOrder = null;
+          let orderContextType = null;
 
-          switch (message.type) {
-            case "text":
-              userText = message.text.body;
-              break;
-
-            case "image":
-              // Download image and attempt to process (Groq does not support multimodal inputs)
-              const imageUrl = await whatsapp.getMediaUrl(message.image.id);
-              const imageBuffer = await whatsapp.downloadMedia(imageUrl);
-              const imageBase64 = imageBuffer.toString("base64");
-              const imageMime = message.image.mime_type || "image/jpeg";
-
-              const imageAnalysis = await gemini.processImage(imageBase64, imageMime);
-              userText = `[Customer sent a photo of a grocery list. Extracted items: ${imageAnalysis}]`;
-              context.type = "image_list";
-              break;
-
-            case "audio":
-              // Download audio (transcription not supported with Groq)
-              const audioUrl = await whatsapp.getMediaUrl(message.audio.id);
-              const audioBuffer = await whatsapp.downloadMedia(audioUrl);
-              const audioBase64 = audioBuffer.toString("base64");
-              const audioMime = message.audio.mime_type || "audio/ogg";
-
-              const transcription = await gemini.processAudio(audioBase64, audioMime);
-              userText = `[Customer sent a voice message. They said: "${transcription}"]`;
-              context.type = "voice_order";
-              break;
-
-            case "interactive":
-              // Button replies or list replies
-              if (message.interactive.type === "button_reply") {
-                userText = message.interactive.button_reply.title;
-              } else if (message.interactive.type === "list_reply") {
-                userText = message.interactive.list_reply.title;
-              }
-              break;
-
-            case "location":
-              userText = `[Customer shared their location: ${message.location.latitude}, ${message.location.longitude}]`;
-              break;
-
-            default:
-              userText = "[Unsupported message type]";
+          if (message.type === "text") {
+            userText = message.text.body;
+            parsedOrder = await cloudflareAI.parseGroceryOrder(userText);
+          } else if (message.type === "image") {
+            const imageUrl = await whatsapp.getMediaUrl(message.image.id);
+            const imageBuffer = await whatsapp.downloadMedia(imageUrl);
+            const mimeType = message.image.mime_type || "image/jpeg";
+            parsedOrder = await cloudflareAI.processGroceryImage(imageBuffer, mimeType);
+            userText = "[Customer sent an image of a grocery list]";
+            orderContextType = "image_list";
+          } else if (message.type === "audio") {
+            const audioUrl = await whatsapp.getMediaUrl(message.audio.id);
+            const audioBuffer = await whatsapp.downloadMedia(audioUrl);
+            parsedOrder = await cloudflareAI.processVoiceOrder(audioBuffer);
+            userText = "[Customer sent a voice message]";
+            orderContextType = "voice_order";
+          } else if (message.type === "interactive") {
+            if (message.interactive.type === "button_reply") {
+              userText = message.interactive.button_reply.title;
+            } else if (message.interactive.type === "list_reply") {
+              userText = message.interactive.list_reply.title;
+            }
+          } else if (message.type === "location") {
+            userText = `[Customer shared their location: ${message.location.latitude}, ${message.location.longitude}]`;
+          } else {
+            userText = "[Unsupported message type]";
           }
 
-          // Get customer context from DB
-          const customer = await db.getCustomer(phone);
-          const orderHistory = await db.getOrderHistory(phone, 5);
-          const conversationHistory = await db.getConversationHistory(phone, 10);
-          const inventory = await db.getInventory();
-
-          // Build context for Groq
-          const fullContext = {
-            customerName: customer?.name || name,
-            phone,
-            orderHistory,
-            conversationHistory,
-            inventory,
-            ...context,
-          };
-
-          // Get AI response
-          const reeResponse = await gemini.generateResponse(
-            userText,
-            fullContext
-          );
-
-          // Save conversation
+          // Save the user's message
           await db.saveConversation(phone, "user", userText);
-          await db.saveConversation(phone, "ree", reeResponse);
 
-          // Check if response contains an order to process
-          const orderData = gemini.extractOrderData(reeResponse);
-          if (orderData) {
+          // If we could parse a grocery order, build and store it
+          if (parsedOrder && parsedOrder.message_understood && Array.isArray(parsedOrder.items) && parsedOrder.items.length > 0) {
+            const orderData = buildOrderData(parsedOrder.items);
             await db.createOrder(phone, orderData);
-          }
 
-          // Send reply via WhatsApp
-          await whatsapp.sendTextMessage(phone, reeResponse);
+            const basketText = formatBasketSummary(orderData);
+            await whatsapp.sendOrderConfirmation(phone, basketText, orderData.total);
+            await db.saveConversation(phone, "ree", basketText);
 
-          // Check if we should send smart suggestions
-          if (context.type === "image_list" || context.type === "voice_order") {
-            // Delay suggestion by 2 seconds
-            setTimeout(async () => {
-              try {
-                const suggestion = await gemini.generateSuggestion(
-                  userText,
-                  fullContext
-                );
-                if (suggestion) {
-                  await whatsapp.sendTextMessage(phone, suggestion);
-                  await db.saveConversation(phone, "ree", suggestion);
+            // Send a smart suggestion after a brief delay
+            if (orderContextType) {
+              setTimeout(async () => {
+                try {
+                  const suggestion = await cloudflareAI.getSmartSuggestions(parsedOrder.items);
+                  if (suggestion && suggestion.suggestions && suggestion.suggestions.length) {
+                    const suggestionText = suggestion.suggestions
+                      .map((s) => `• ${s.item} — ${s.reason} (${s.estimated_price})`)
+                      .join("\n");
+                    await whatsapp.sendTextMessage(phone, `💡 Suggestion:
+${suggestionText}`);
+                    await db.saveConversation(phone, "ree", suggestionText);
+                  }
+                } catch (err) {
+                  console.error("❌ Suggestion error (async):", err);
                 }
-              } catch (err) {
-                console.error("❌ Suggestion error (async):", err);
-              }
-            }, 2000);
+              }, 2000);
+            }
+
+            continue; // Move to next message
           }
+
+          // Not an order / could not parse — fallback to general chat
+          const reply = await cloudflareAI.handleGeneralChat(userText, name);
+          const finalReply = reply || "I'm here to help! You can send me your grocery list anytime. 😊";
+          await whatsapp.sendTextMessage(phone, finalReply);
+          await db.saveConversation(phone, "ree", finalReply);
         }
       }
     }
@@ -577,11 +613,19 @@ app.post("/api/reminders/check", async (req, res) => {
       const daysSince = Math.floor((Date.now() - new Date(lastOrder.created_at).getTime()) / 86400000);
 
       if (daysSince >= customer.avg_order_cycle * 0.9) {
-        const reminder = await gemini.generateReminder(customer, lastOrder);
-        await whatsapp.sendTextMessage(customer.phone, reminder);
-        await db.saveConversation(customer.phone, "ree", reminder);
-        await db.updateLastReminder(customer.phone);
-        sent.push(customer.phone);
+        const analysis = await cloudflareAI.analyseReorderTiming({
+          ...customer,
+          orderHistory: await db.getOrderHistory(customer.phone, 10),
+          lastOrderDate: lastOrder.created_at,
+        });
+
+        if (analysis && analysis.should_remind) {
+          const reminder = analysis.suggested_message || `Hi ${customer.name}! 😊 It's been a while since your last order. Shall I set up your usual basket? Just say "Yes"!`;
+          await whatsapp.sendTextMessage(customer.phone, reminder);
+          await db.saveConversation(customer.phone, "ree", reminder);
+          await db.updateLastReminder(customer.phone);
+          sent.push(customer.phone);
+        }
       }
     }
 
@@ -664,7 +708,7 @@ app.post("/api/chat", async (req, res) => {
       inventory,
     };
 
-    const response = await gemini.generateResponse(message, context);
+    const response = await cloudflareAI.handleGeneralChat(message, demoName);
 
     await db.saveConversation(demoPhone, "user", message);
     await db.saveConversation(demoPhone, "ree", response);
@@ -683,10 +727,9 @@ app.post("/api/chat/image", upload.single("image"), async (req, res) => {
     }
 
     const imageBuffer = fs.readFileSync(req.file.path);
-    const base64 = imageBuffer.toString("base64");
     const mimeType = req.file.mimetype;
 
-    const analysis = await gemini.processImage(base64, mimeType);
+    const analysis = await cloudflareAI.processGroceryImage(imageBuffer, mimeType);
 
     fs.unlinkSync(req.file.path);
 
@@ -718,6 +761,14 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log("🔗 Webhook endpoint ready at /webhook");
   console.log("💡 Think Before You Blink.");
   console.log("══════════════════════════════════════");
+
+  cloudflareAI.verifyConnection().then((ok) => {
+    if (ok) {
+      console.log("🧠 AI engine ready");
+    } else {
+      console.error("🚨 AI engine failed to initialize — AI features will not work!");
+    }
+  });
 });
 
 // Heartbeat log to keep Railway from idling the container
@@ -733,9 +784,18 @@ const shutdown = (signal) => {
 
   console.log(`🛑 ${signal} received. Shutting down server...`);
   clearInterval(heartbeat);
+
+  // Stop accepting new connections, then exit
   server.close(() => {
     console.log("✅ Server closed");
+    process.exit(0);
   });
+
+  // Force exit if graceful shutdown hangs
+  setTimeout(() => {
+    console.warn("⚠️ Forced shutdown after timeout");
+    process.exit(0);
+  }, 10000);
 };
 
 process.on("SIGINT", () => shutdown("SIGINT"));
